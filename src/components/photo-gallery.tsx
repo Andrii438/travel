@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { deletePhoto, savePhotoCaption, setCoverPhoto } from "@/lib/actions";
+import { deletePhoto, savePhotoCaption } from "@/lib/actions";
 
 export type GalleryPhoto = {
   id: string;
@@ -13,7 +13,6 @@ export type GalleryPhoto = {
   caption: string;
   width: number | null;
   height: number | null;
-  isCover: boolean;
 };
 
 export default function PhotoGallery({
@@ -66,11 +65,6 @@ export default function PhotoGallery({
               loading="lazy"
               className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
             />
-            {photo.isCover && (
-              <span className="absolute left-1 top-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white">
-                обкладинка
-              </span>
-            )}
           </button>
         ))}
       </div>
@@ -126,21 +120,6 @@ function Lightbox({
           {index + 1} / {photos.length}
         </span>
         <div className="flex items-center gap-2">
-          {!photo.isCover && (
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() =>
-                startTransition(async () => {
-                  await setCoverPhoto(photo.id, tripId);
-                  router.refresh();
-                })
-              }
-              className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20 transition-colors"
-            >
-              Зробити обкладинкою
-            </button>
-          )}
           <button
             type="button"
             disabled={pending}

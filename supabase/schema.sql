@@ -42,15 +42,16 @@ create table if not exists public.trips (
   lng          double precision not null,
   start_date   date not null,
   end_date     date,
-  cover_photo  uuid,                          -- FK додається нижче
+  cover_image  text,                          -- заставка: шлях у сховищі
   boundary     jsonb,                         -- межі міста (GeoJSON) для заливки
   created_by   uuid not null references auth.users (id),
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
 
--- Для баз, створених до появи заливки міст на мапі.
+-- Для баз, створених до появи заливки міст і власної заставки.
 alter table public.trips add column if not exists boundary jsonb;
+alter table public.trips add column if not exists cover_image text;
 
 create index if not exists trips_start_date_idx on public.trips (start_date desc);
 create index if not exists trips_country_idx    on public.trips (country_code);
@@ -109,18 +110,6 @@ create table if not exists public.photos (
 );
 
 create index if not exists photos_trip_idx on public.photos (trip_id, sort_order);
-
--- Обкладинка подорожі — вже після створення photos, бо звʼязок круговий.
-do $$
-begin
-  if not exists (
-    select 1 from pg_constraint where conname = 'trips_cover_photo_fkey'
-  ) then
-    alter table public.trips
-      add constraint trips_cover_photo_fkey
-      foreign key (cover_photo) references public.photos (id) on delete set null;
-  end if;
-end $$;
 
 -- -------------------------------------------------------------
 -- 6. АВТООНОВЛЕННЯ updated_at

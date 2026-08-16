@@ -20,9 +20,10 @@ export default async function HomePage() {
     await Promise.all([
       supabase
         .from("trips")
-        // Підказка !photos_trip_id_fkey обовʼязкова: між trips і photos
-        // два зовнішні ключі (photos.trip_id і trips.cover_photo), тож
-        // без неї PostgREST повертає помилку замість вкладених фото.
+        // Підказка !photos_trip_id_fkey каже, через який саме зовнішній
+        // ключ вкладати фото. У базах, де ще лишився стовпець
+        // trips.cover_photo, звʼязків між таблицями два, і без підказки
+        // PostgREST повертає помилку замість даних.
         .select(
           "*, ratings(*), photos!photos_trip_id_fkey(id, storage_path, sort_order)",
         )
@@ -139,11 +140,10 @@ function Stat({ value, label }: { value: number; label: string }) {
   );
 }
 
-/** Обкладинка: обрана вручну або найперша за порядком. */
+/** Заставка: завантажена вручну, інакше найперше фото подорожі. */
 function pickCover(trip: TripRow): string | null {
+  if (trip.cover_image) return trip.cover_image;
   if (trip.photos.length === 0) return null;
-  const chosen = trip.photos.find((p) => p.id === trip.cover_photo);
-  if (chosen) return chosen.storage_path;
   return [...trip.photos].sort((a, b) => a.sort_order - b.sort_order)[0]
     .storage_path;
 }

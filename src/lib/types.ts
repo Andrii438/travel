@@ -17,7 +17,8 @@ export type Trip = {
   lng: number;
   start_date: string;
   end_date: string | null;
-  cover_photo: string | null;
+  /** Заставка подорожі: шлях у сховищі. null — показуємо перше фото. */
+  cover_image: string | null;
   /** Межі міста з Nominatim. null — місце без полігона (гора, пляж). */
   boundary: TripBoundary | null;
   created_by: string;

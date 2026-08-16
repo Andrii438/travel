@@ -89,15 +89,20 @@ export async function deleteTrip(tripId: string) {
 
   // Спершу файли: рядки в photos зникнуть каскадом разом із подорожжю,
   // а от обʼєкти в сховищі про цей каскад не знають і лишилися б сиротами.
-  const { data: photos } = await supabase
-    .from("photos")
-    .select("storage_path")
-    .eq("trip_id", tripId);
+  // Заставка живе в тому ж бакеті, але поза таблицею photos — тож її
+  // треба зібрати окремо, інакше вона залишиться висіти назавжди.
+  const [{ data: photos }, { data: trip }] = await Promise.all([
+    supabase.from("photos").select("storage_path").eq("trip_id", tripId),
+    supabase.from("trips").select("cover_image").eq("id", tripId).single(),
+  ]);
 
-  if (photos && photos.length > 0) {
-    await supabase.storage
-      .from("trip-photos")
-      .remove(photos.map((p) => p.storage_path));
+  const paths = [
+    ...(photos ?? []).map((p) => p.storage_path),
+    ...(trip?.cover_image ? [trip.cover_image] : []),
+  ];
+
+  if (paths.length > 0) {
+    await supabase.storage.from("trip-photos").remove(paths);
   }
 
   const { error } = await supabase.from("trips").delete().eq("id", tripId);
@@ -203,16 +208,60 @@ export async function deletePhoto(photoId: string, tripId: string) {
   revalidatePath(`/trips/${tripId}`);
 }
 
-export async function setCoverPhoto(photoId: string, tripId: string) {
+/**
+ * Заставка подорожі — окреме зображення, а не одне з фото галереї.
+ * Файл уже лежить у сховищі (його кладе браузер після стиснення),
+ * сюди приходить лише шлях.
+ */
+export async function setCoverImage(tripId: string, storagePath: string) {
   await requireMember();
   const supabase = await createClient();
 
+  // Стару заставку прибираємо ЛИШЕ після того, як нова записалася:
+  // інакше збій на update лишив би подорож і без старої, і без нової.
+  const { data: previous } = await supabase
+    .from("trips")
+    .select("cover_image")
+    .eq("id", tripId)
+    .single();
+
   const { error } = await supabase
     .from("trips")
-    .update({ cover_photo: photoId })
+    .update({ cover_image: storagePath })
     .eq("id", tripId);
 
   if (error) throw new Error(error.message);
+
+  if (previous?.cover_image && previous.cover_image !== storagePath) {
+    await supabase.storage.from("trip-photos").remove([previous.cover_image]);
+  }
+
+  revalidatePath("/");
+  revalidatePath(`/trips/${tripId}`);
+}
+
+/** Прибрати заставку — картка знову покаже перше фото подорожі. */
+export async function removeCoverImage(tripId: string) {
+  await requireMember();
+  const supabase = await createClient();
+
+  const { data: previous } = await supabase
+    .from("trips")
+    .select("cover_image")
+    .eq("id", tripId)
+    .single();
+
+  const { error } = await supabase
+    .from("trips")
+    .update({ cover_image: null })
+    .eq("id", tripId);
+
+  if (error) throw new Error(error.message);
+
+  if (previous?.cover_image) {
+    await supabase.storage.from("trip-photos").remove([previous.cover_image]);
+  }
+
   revalidatePath("/");
   revalidatePath(`/trips/${tripId}`);
 }

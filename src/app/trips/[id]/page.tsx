@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import BoundaryButton from "@/components/boundary-button";
+import CoverUploader from "@/components/cover-uploader";
 import DeleteTripButton from "@/components/delete-trip-button";
 import NoteEditor from "@/components/note-editor";
 import PhotoGallery, { type GalleryPhoto } from "@/components/photo-gallery";
@@ -26,9 +27,9 @@ export default async function TripPage({ params }: PageProps<"/trips/[id]">) {
     await Promise.all([
       supabase
         .from("trips")
-        // photos!photos_trip_id_fkey — явно вказуємо, ЯКИЙ саме звʼязок
-        // між trips і photos брати. Їх два (photos.trip_id і trips.cover_photo),
-        // і без підказки PostgREST відмовляється вкладати таблицю взагалі.
+        // photos!photos_trip_id_fkey — явно вказуємо, через який зовнішній
+        // ключ вкладати фото. У базах зі старим стовпцем trips.cover_photo
+        // звʼязків два, і без підказки PostgREST відмовляє в запиті.
         .select("*, notes(*), ratings(*), photos!photos_trip_id_fkey(*)")
         .eq("id", id)
         .maybeSingle<TripRow>(),
@@ -85,9 +86,18 @@ export default async function TripPage({ params }: PageProps<"/trips/[id]">) {
         caption: photo.caption,
         width: photo.width,
         height: photo.height,
-        isCover: trip.cover_photo === photo.id,
       });
     }
+  }
+
+  // Заставка лежить у тому ж приватному бакеті, що й фото, тож і їй
+  // потрібне тимчасове підписане посилання.
+  let coverUrl: string | null = null;
+  if (trip.cover_image) {
+    const { data } = await supabase.storage
+      .from("trip-photos")
+      .createSignedUrl(trip.cover_image, 60 * 60);
+    coverUrl = data?.signedUrl ?? null;
   }
 
   const gap = disagreement(trip.ratings);
@@ -116,6 +126,8 @@ export default async function TripPage({ params }: PageProps<"/trips/[id]">) {
             {formatDateRange(trip.start_date, trip.end_date)} ·{" "}
             {pluralDays(tripDays(trip.start_date, trip.end_date))}
           </p>
+
+          <CoverUploader tripId={trip.id} coverUrl={coverUrl} />
 
           {!trip.boundary && <BoundaryButton tripId={trip.id} />}
 
