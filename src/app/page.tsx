@@ -16,14 +16,24 @@ export default async function HomePage() {
 
   // Один запит замість трьох: PostgREST вміє вкладати повʼязані таблиці,
   // і RLS застосовується до кожної з них окремо.
-  const [{ data: tripRows }, { data: memberRows }] = await Promise.all([
-    supabase
-      .from("trips")
-      .select("*, ratings(*), photos(id, storage_path, sort_order)")
-      .order("start_date", { ascending: false })
-      .returns<TripRow[]>(),
-    supabase.from("members").select("*").returns<Member[]>(),
-  ]);
+  const [{ data: tripRows, error: tripsError }, { data: memberRows }] =
+    await Promise.all([
+      supabase
+        .from("trips")
+        // Підказка !photos_trip_id_fkey обовʼязкова: між trips і photos
+        // два зовнішні ключі (photos.trip_id і trips.cover_photo), тож
+        // без неї PostgREST повертає помилку замість вкладених фото.
+        .select(
+          "*, ratings(*), photos!photos_trip_id_fkey(id, storage_path, sort_order)",
+        )
+        .order("start_date", { ascending: false })
+        .returns<TripRow[]>(),
+      supabase.from("members").select("*").returns<Member[]>(),
+    ]);
+
+  if (tripsError) {
+    throw new Error(`Не вдалося завантажити подорожі: ${tripsError.message}`);
+  }
 
   const trips = tripRows ?? [];
   const members = memberRows ?? [];
@@ -56,6 +66,7 @@ export default async function HomePage() {
       lng: trip.lng,
       start_date: trip.start_date,
       end_date: trip.end_date,
+      boundary: trip.boundary,
       coverUrl: cover ? (signed.get(cover) ?? null) : null,
       photoCount: trip.photos.length,
       scores: trip.ratings.map((r) => {

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { flagEmoji, formatDateRange, pluralDays, tripDays } from "@/lib/format";
+import type { TripBoundary } from "@/lib/nominatim";
 import { scoreColor } from "@/lib/ratings";
 
 // MapLibre звертається до window ще під час імпорту модуля, тому вантажимо
@@ -29,6 +30,7 @@ export type TripListItem = {
   end_date: string | null;
   coverUrl: string | null;
   photoCount: number;
+  boundary: TripBoundary | null;
   scores: {
     authorId: string;
     name: string;
@@ -57,6 +59,7 @@ export default function Atlas({ trips }: { trips: TripListItem[] }) {
     country_code: t.country_code,
     lat: t.lat,
     lng: t.lng,
+    boundary: t.boundary,
     score:
       t.scores.length > 0
         ? t.scores.reduce((s, x) => s + x.overall, 0) / t.scores.length

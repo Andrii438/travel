@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient, getCurrentMember } from "@/lib/supabase/server";
+import { normalizeBoundary, searchPlaces } from "@/lib/nominatim";
 import { DEFAULT_SCORES, type CriterionKey } from "@/lib/ratings";
 
 /**
@@ -34,6 +35,11 @@ export async function createTrip(formData: FormData) {
     throw new Error("Дата повернення раніша за дату виїзду.");
   }
 
+  // Межі приходять рядком із прихованого поля. Довіряти йому не можна:
+  // це звичайне поле форми, тож проганяємо через ту саму перевірку,
+  // що й відповідь Nominatim.
+  const boundary = parseBoundaryField(formData.get("boundary"));
+
   const { data, error } = await supabase
     .from("trips")
     .insert({
@@ -45,6 +51,7 @@ export async function createTrip(formData: FormData) {
       lng,
       start_date,
       end_date,
+      boundary,
       created_by: member.user_id,
     })
     .select("id")
@@ -225,4 +232,65 @@ export async function savePhotoCaption(
 
   if (error) throw new Error(error.message);
   revalidatePath(`/trips/${tripId}`);
+}
+
+/**
+ * Дотягує межі міста до подорожі, створеної до появи заливки.
+ *
+ * Шукаємо за збереженою назвою місця, а з кількох збігів беремо
+ * найближчий до вже відомих координат: «Тропея» в Nominatim може
+ * означати і місто, і однойменну комуну за сотні кілометрів.
+ */
+export async function refreshBoundary(tripId: string) {
+  await requireMember();
+  const supabase = await createClient();
+
+  const { data: trip, error: readError } = await supabase
+    .from("trips")
+    .select("place_name, lat, lng")
+    .eq("id", tripId)
+    .single();
+
+  if (readError) throw new Error(readError.message);
+
+  const candidates = (await searchPlaces(trip.place_name)).filter(
+    (r) => r.boundary !== null,
+  );
+
+  if (candidates.length === 0) {
+    throw new Error(
+      `Для «${trip.place_name}» Nominatim не має контуру — таке буває з горами, пляжами й дрібними селищами.`,
+    );
+  }
+
+  const nearest = candidates.reduce((best, r) =>
+    distance(r, trip) < distance(best, trip) ? r : best,
+  );
+
+  const { error } = await supabase
+    .from("trips")
+    .update({ boundary: nearest.boundary })
+    .eq("id", tripId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/");
+  revalidatePath(`/trips/${tripId}`);
+}
+
+/** Квадрат відстані в градусах — для порівняння кандидатів цього досить. */
+function distance(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+) {
+  return (a.lat - b.lat) ** 2 + (a.lng - b.lng) ** 2;
+}
+
+function parseBoundaryField(value: FormDataEntryValue | null) {
+  if (typeof value !== "string" || value === "") return null;
+  try {
+    return normalizeBoundary(JSON.parse(value));
+  } catch {
+    return null;
+  }
 }

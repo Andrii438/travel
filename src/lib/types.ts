@@ -1,3 +1,5 @@
+import type { TripBoundary } from "./nominatim";
+
 export type Member = {
   user_id: string;
   email: string;
@@ -16,6 +18,8 @@ export type Trip = {
   start_date: string;
   end_date: string | null;
   cover_photo: string | null;
+  /** Межі міста з Nominatim. null — місце без полігона (гора, пляж). */
+  boundary: TripBoundary | null;
   created_by: string;
   created_at: string;
 };

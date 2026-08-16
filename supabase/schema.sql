@@ -43,10 +43,14 @@ create table if not exists public.trips (
   start_date   date not null,
   end_date     date,
   cover_photo  uuid,                          -- FK додається нижче
+  boundary     jsonb,                         -- межі міста (GeoJSON) для заливки
   created_by   uuid not null references auth.users (id),
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
+
+-- Для баз, створених до появи заливки міст на мапі.
+alter table public.trips add column if not exists boundary jsonb;
 
 create index if not exists trips_start_date_idx on public.trips (start_date desc);
 create index if not exists trips_country_idx    on public.trips (country_code);

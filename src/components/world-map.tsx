@@ -9,14 +9,31 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  Layer,
   Map as MapGL,
   Marker,
   NavigationControl,
+  Source,
+  type MapEvent,
   type MapRef,
+  type MapStyleDataEvent,
 } from "react-map-gl/maplibre";
+import { setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { flagEmoji } from "@/lib/format";
+import type { TripBoundary } from "@/lib/nominatim";
 import { scoreColor } from "@/lib/ratings";
+
+// Тайли й шрифти мапи вантажить не головний потік, а Web Worker. Сам
+// MapLibre шукає його поруч зі своїм бандлом — а після збірки бандл
+// лежить у /_next/static/chunks/, де воркера немає. Next відповідає
+// HTML-сторінкою 404, воркер не стартує, і замість мапи лишається
+// однотонний фон стилю (пін і кнопки при цьому працюють — вони в DOM).
+//
+// Копію воркера кладе в public/maplibre скрипт scripts/copy-maplibre-worker.mjs
+// на етапі postinstall. Виклик має відпрацювати до створення мапи, тому
+// стоїть на рівні модуля, а не в ефекті.
+setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 // Безкоштовні векторні стилі CARTO — без ключів, без реєстрації, без карток.
 const STYLE_LIGHT =
@@ -32,6 +49,7 @@ export type MapTrip = {
   lat: number;
   lng: number;
   score: number | null;
+  boundary: TripBoundary | null;
 };
 
 type Props = {
@@ -41,6 +59,9 @@ type Props = {
 };
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
+
+/** Колір заливки для місць, які ще ніхто не оцінив. */
+const UNRATED_COLOR = "#78716c";
 
 function subscribeToScheme(onChange: () => void) {
   const mq = window.matchMedia(DARK_QUERY);
@@ -87,6 +108,43 @@ export default function WorldMap({ trips, selectedId, onSelect }: Props) {
     if (ready) fitAll();
   }, [ready, fitAll]);
 
+  // Заливка має лягти ПІД підписи мапи, інакше назви міст ховаються
+  // під нею. Id першого символьного шару беремо зі стилю: у CARTO їх
+  // кілька десятків, і зашивати конкретну назву було б крихко.
+  const [labelLayerId, setLabelLayerId] = useState<string | undefined>();
+
+  const syncLabelLayer = useCallback((event: MapEvent | MapStyleDataEvent) => {
+    try {
+      const layers = event.target.getStyle()?.layers ?? [];
+      const label = layers.find(
+        (layer: { type: string; id: string }) => layer.type === "symbol",
+      );
+      setLabelLayerId(label?.id);
+    } catch {
+      // Стиль ще не догрузився — спробуємо на наступній події.
+    }
+  }, []);
+
+  // Полігони міст одним джерелом: колір і підсвітка їдуть властивостями
+  // фіч, тому перемальовування вибраної подорожі не чіпає інші.
+  const boundaries = useMemo(
+    () => ({
+      type: "FeatureCollection" as const,
+      features: trips
+        .filter((t) => t.boundary !== null)
+        .map((t) => ({
+          type: "Feature" as const,
+          id: t.id,
+          properties: {
+            color: t.score !== null ? scoreColor(t.score) : UNRATED_COLOR,
+            selected: t.id === selectedId,
+          },
+          geometry: t.boundary as TripBoundary,
+        })),
+    }),
+    [trips, selectedId],
+  );
+
   // Клік по піну підлітає до нього, не змінюючи масштаб різко.
   useEffect(() => {
     const map = mapRef.current;
@@ -108,12 +166,40 @@ export default function WorldMap({ trips, selectedId, onSelect }: Props) {
         initialViewState={{ longitude: 15, latitude: 30, zoom: 1.4 }}
         minZoom={1}
         maxZoom={14}
-        onLoad={() => setReady(true)}
+        onLoad={(event) => {
+          syncLabelLayer(event);
+          setReady(true);
+        }}
+        onStyleData={syncLabelLayer}
         onClick={() => onSelect(null)}
         attributionControl={{ compact: true }}
         style={{ width: "100%", height: "100%" }}
       >
         <NavigationControl position="top-right" showCompass={false} />
+
+        {boundaries.features.length > 0 && (
+          <Source id="visited-places" type="geojson" data={boundaries}>
+            <Layer
+              id="visited-fill"
+              type="fill"
+              beforeId={labelLayerId}
+              paint={{
+                "fill-color": ["get", "color"],
+                "fill-opacity": ["case", ["get", "selected"], 0.45, 0.22],
+              }}
+            />
+            <Layer
+              id="visited-outline"
+              type="line"
+              beforeId={labelLayerId}
+              paint={{
+                "line-color": ["get", "color"],
+                "line-width": ["case", ["get", "selected"], 2.5, 1.2],
+                "line-opacity": 0.85,
+              }}
+            />
+          </Source>
+        )}
 
         {trips.map((trip) => {
           const active = trip.id === selectedId;

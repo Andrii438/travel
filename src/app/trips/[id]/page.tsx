@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import BoundaryButton from "@/components/boundary-button";
 import DeleteTripButton from "@/components/delete-trip-button";
 import NoteEditor from "@/components/note-editor";
 import PhotoGallery, { type GalleryPhoto } from "@/components/photo-gallery";
@@ -21,15 +22,24 @@ export default async function TripPage({ params }: PageProps<"/trips/[id]">) {
 
   const supabase = await createClient();
 
-  const [{ data: trip }, { data: memberRows }] = await Promise.all([
-    supabase
-      .from("trips")
-      .select("*, notes(*), ratings(*), photos(*)")
-      .eq("id", id)
-      .maybeSingle<TripRow>(),
-    supabase.from("members").select("*").returns<Member[]>(),
-  ]);
+  const [{ data: trip, error: tripError }, { data: memberRows }] =
+    await Promise.all([
+      supabase
+        .from("trips")
+        // photos!photos_trip_id_fkey — явно вказуємо, ЯКИЙ саме звʼязок
+        // між trips і photos брати. Їх два (photos.trip_id і trips.cover_photo),
+        // і без підказки PostgREST відмовляється вкладати таблицю взагалі.
+        .select("*, notes(*), ratings(*), photos!photos_trip_id_fkey(*)")
+        .eq("id", id)
+        .maybeSingle<TripRow>(),
+      supabase.from("members").select("*").returns<Member[]>(),
+    ]);
 
+  // Помилку запиту не можна плутати з «подорожі немає»: інакше будь-яка
+  // проблема з базою виглядала б як 404 і нічого не підказувала.
+  if (tripError) {
+    throw new Error(`Не вдалося завантажити подорож: ${tripError.message}`);
+  }
   if (!trip) notFound();
 
   const members = memberRows ?? [];
@@ -106,6 +116,8 @@ export default async function TripPage({ params }: PageProps<"/trips/[id]">) {
             {formatDateRange(trip.start_date, trip.end_date)} ·{" "}
             {pluralDays(tripDays(trip.start_date, trip.end_date))}
           </p>
+
+          {!trip.boundary && <BoundaryButton tripId={trip.id} />}
 
           {gap !== null && (
             <p className="mt-3 inline-block rounded-full bg-surface-2 px-3 py-1 text-sm">

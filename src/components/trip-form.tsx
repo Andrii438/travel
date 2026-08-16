@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
-import type { GeocodeResult } from "@/app/api/geocode/route";
+import type { GeocodeResult } from "@/lib/nominatim";
 import { createTrip } from "@/lib/actions";
 import { flagEmoji } from "@/lib/format";
 
@@ -65,6 +65,13 @@ export default function TripForm() {
       <input type="hidden" name="country_code" value={place?.countryCode ?? ""} />
       <input type="hidden" name="country_name" value={place?.countryName ?? ""} />
       <input type="hidden" name="place_name" value={place?.place ?? ""} />
+      {/* Межі міста їдуть на сервер рядком: FormData не вміє обʼєктів,
+          а окремий запит до Nominatim за тим самим місцем був би зайвим. */}
+      <input
+        type="hidden"
+        name="boundary"
+        value={place?.boundary ? JSON.stringify(place.boundary) : ""}
+      />
 
       <div className="relative">
         <label htmlFor="place" className="block text-sm font-medium mb-1.5">
@@ -118,6 +125,7 @@ export default function TripForm() {
             <span className="tabular-nums">
               {place.lat.toFixed(3)}, {place.lng.toFixed(3)}
             </span>
+            {place.boundary ? " · межі знайдено" : " · без меж, лише пін"}
           </p>
         )}
       </div>
